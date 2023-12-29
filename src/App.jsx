@@ -1,96 +1,100 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./App.css";
 
 const App = () => {
-  const [watchId, setWatchId] = useState(null);
-  const [startPosition, setStartPosition] = useState(null);
-  const [endPosition, setEndPosition] = useState(null);
-  const [startTime, setStartTime] = useState(null);
-  const [endTime, setEndTime] = useState(null);
-  const [distance, setDistance] = useState(0);
+  const [sessionInProgress, setSessionInProgress] = useState(false);
   const [speed, setSpeed] = useState(0);
-  const [error, setError] = useState(null);
+  const [distance, setDistance] = useState(0);
+  const [location, setLocation] = useState({ latitude: 0, longitude: 0 });
+  const [prevLocation, setPrevLocation] = useState(null);
+  const [sessionStart, setSessionStart] = useState(null);
+  const [sessionEnd, setSessionEnd] = useState(null);
+  const [sessionDuration, setSessionDuration] = useState(null);
 
-  const handleStart = () => {
-    if ("geolocation" in navigator) {
-      const id = navigator.geolocation.watchPosition(
-        (position) => {
-          console.log(position);
-          if (!startPosition) {
-            setStartPosition(position);
-            setStartTime(new Date());
-          } else {
-            setEndPosition(position);
-            setEndTime(new Date());
-          }
-        },
-        (err) => {
-          setError(err.message);
-          alert(`ERROR(${err.code}): ${err.message}`);
+  let watchId;
+
+  const startSession = () => {
+    setSessionInProgress(true);
+    setSessionStart(new Date());
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        console.log(position);
+        const { latitude, longitude } = position.coords;
+        const newLocation = { latitude, longitude };
+        if (prevLocation) {
+          const newDistance = calculateDistance(prevLocation, newLocation);
+          setDistance(distance + newDistance);
         }
-      );
-
-      setWatchId(id);
-    } else {
-      setError("Geolocation is not supported by this browser.");
-    }
+        setPrevLocation(newLocation);
+        setLocation(newLocation);
+        setSpeed(position.coords.speed || 0);
+      },
+      (error) => {
+        console.error(error);
+      }
+    );
   };
 
-  const handleEnd = () => {
-    if (watchId) {
-      navigator.geolocation.clearWatch(watchId);
-      setStartPosition(null);
-      setEndPosition(null);
-      calculateResults();
-    }
+  const endSession = () => {
+    setSessionInProgress(false);
+    const endTime = new Date();
+    setSessionEnd(endTime);
+    const duration = endTime - sessionStart;
+    setSessionDuration(duration);
+    navigator.geolocation.clearWatch(watchId);
+    setSpeed(0);
+    setDistance(0);
+    setLocation({ latitude: 0, longitude: 0 });
+    setPrevLocation(null);
   };
 
-  const calculateResults = () => {
-    if (startPosition && endPosition && startTime && endTime) {
-      const distanceTravelled = calculateDistance(
-        startPosition.coords,
-        endPosition.coords
-      );
-      const timeTravelled = (endTime - startTime) / 1000; // in seconds
-      const avgSpeed = distanceTravelled / timeTravelled; // in meters per second
+  const calculateDistance = (start, end) => {
+    const earthRadius = 6371; // Earth's radius in kilometers
+    const { latitude: lat1, longitude: lon1 } = start;
+    const { latitude: lat2, longitude: lon2 } = end;
 
-      setDistance(distanceTravelled);
-      setSpeed(avgSpeed);
-    }
-  };
-
-  const calculateDistance = (coords1, coords2) => {
-    const { latitude: lat1, longitude: lon1 } = coords1;
-    const { latitude: lat2, longitude: lon2 } = coords2;
-
-    const R = 6371e3; // Earth radius in meters
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
 
     const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
 
-    return R * c;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = earthRadius * c;
+    return distance;
+  };
+
+  const toRadians = (angle) => {
+    return (angle * Math.PI) / 180;
   };
 
   return (
     <div>
-      <h1>Geolocation API</h1>
-      {error && <p>{error}</p>}
-      {!startPosition && <button onClick={handleStart}>Start Session</button>}
-      {startPosition && !endPosition && (
-        <button onClick={handleEnd}>End Session</button>
+      <h1>Geo Test</h1>
+      {sessionInProgress ? (
+        <div>
+          <p>Current Speed: {speed.toFixed(2)} m/s</p>
+          <p>Distance Travelled: {distance.toFixed(2)} km</p>
+          <p>
+            Current Location: Latitude {location.latitude}, Longitude{" "}
+            {location.longitude}
+          </p>
+          <button onClick={endSession}>End Session</button>
+        </div>
+      ) : (
+        <button onClick={startSession}>Start Session</button>
       )}
-
-      <div>
-        <h2>Results</h2>
-        <p>Distance: {distance} meters</p>
-        <p>Average Speed: {speed} m/s</p>
-      </div>
+      {sessionStart && sessionEnd && (
+        <div>
+          <p>Session Start: {sessionStart.toLocaleString()}</p>
+          <p>Session End: {sessionEnd.toLocaleString()}</p>
+          <p>Session Duration: {sessionDuration / 1000} seconds</p>
+        </div>
+      )}
     </div>
   );
 };
